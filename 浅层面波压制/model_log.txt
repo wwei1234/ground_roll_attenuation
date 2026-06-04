@@ -1,0 +1,32 @@
+model   dataset                     ground roll area mask               loss area                               Network
+
+1027    SYN                         original                            no ground roll mask area                CU-Net
+
+1028    SYN+FIELD                   original                            no ground roll mask area                CU-Net
+
+1029    SYN+FIELD                   original                            entire no ground roll area              CU-Net
+
+1030    SYN                         gauss mask                          entire no ground roll area              CU-Net
+
+1031    SYN                         gauss mask                          no ground roll mask area                CU-Net
+
+1110    SYN+FIELD                   gauss mask                          entire no ground roll area              CU-Net
+
+1111    SYN+FIELD                   gauss mask                          no ground roll mask area                CU-Net
+
+1112    FIELD                       gauss mask                          no ground roll mask area                CU-Net
+
+1113    Field                       gauss mask                          no ground roll mask area                U-Net     
+
+1113    SYN                         gauss mask                          no ground roll mask area                U-Net     
+
+1114    SYN                         supervised learning                                                         CU-Net
+
+1121    SYN+FIELD(after filter)     gauss mask                          no ground roll mask area                CU-Net          20-50          
+
+1122    SYN+FIELD(after filter)     gauss mask                          no ground roll mask area                U-Net           20-50      
+
+1124    SYN+FIELD(after filter)     gauss mask                          no ground roll mask area                CU-Net          30-80
+
+1126    SYN+FIELD(after filter)     gauss mask                          no ground roll mask area                U-Net           30-80
+

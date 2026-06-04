@@ -1,0 +1,19 @@
+合成记录：
+
+clean：filter 20-150
+noise：源数据
+noised：源数据
+网络input：源数据
+F-K方法压制结果：源数据
+F-K方法压制噪声：源数据
+F-K方法压制残差：源数据
+
+U-Net方法压制结果：filter 20-150
+U-Net方法压制噪声：源数据
+U-Net方法压制残差：源数据
+
+CU-Net方法压制结果：filter 20-150
+CU-Net方法压制噪声：源数据
+CU-Net方法压制残差：源数据
+
+F-K谱：都是filter 20-150

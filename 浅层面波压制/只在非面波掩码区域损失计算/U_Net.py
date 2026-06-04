@@ -1,0 +1,197 @@
+from typing import Dict
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+# 定义双卷积类
+class DoubleConv(nn.Sequential):
+    def __init__(self, in_channels, out_channels, mid_channels=None):
+        if mid_channels is None:
+            mid_channels = out_channels
+        super(DoubleConv, self).__init__(
+            # 定义padding为1，保持卷积后特征图的宽度和高度不变，具体计算N= (W-F+2P)/S+1
+            nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1, bias=False),
+            # 加入BN层，提升训练速度，并提高模型效果
+            nn.BatchNorm2d(mid_channels),
+            nn.ReLU(inplace=True),
+            # 第二个卷积层，同第一个
+            nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1, bias=False),
+            # BN层
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+        )
+
+# 调用上面定义的双卷积类，定义下采样类
+class Down(nn.Sequential):
+    def __init__(self, in_channels, out_channels):
+        super(Down, self).__init__(
+            # 最大池化，步长为2，池化核大小为2，计算公式同卷积，则 N = (W-F+2P)/S+1,  N= (W-2+0)/4 + 1
+            nn.MaxPool2d(2, stride=2),
+            DoubleConv(in_channels, out_channels)
+        )
+
+class Up(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(Up, self).__init__()
+ 
+        # 调用转置卷积的方法进行上采样，使特征图的高和宽翻倍，out  =(W−1)×S−2×P+F，通道数减半
+        self.up = nn.ConvTranspose2d(in_channels, in_channels // 2, kernel_size=2, stride=2)
+        # 调用双层卷积类，通道数是否减半要看out_channels接收的值
+        self.conv = DoubleConv(in_channels, out_channels)
+ 
+    def forward(self, x1: torch.Tensor, x2: torch.Tensor) -> torch.Tensor:
+        x1 = self.up(x1)
+ 
+        # X的shape为[N, C, H, W]，下面三行代码主要是为了保证x1和x2在维度为2和3的地方保持一致，方便cat操作不出错。
+        diff_y = x2.size()[2] - x1.size()[2]
+        diff_x = x2.size()[3] - x1.size()[3]
+        # 增加padding操作，padding_left, padding_right, padding_top, padding_bottom
+        x1 = F.pad(x1, [diff_x // 2, diff_x - diff_x // 2,
+                        diff_y // 2, diff_y - diff_y // 2])
+ 
+        x = torch.cat([x2, x1], dim=1)
+        x = self.conv(x)
+        return x
+
+# 定义输出卷积类
+class OutConv(nn.Sequential):
+    def __init__(self, in_channels, num_classes):
+        super(OutConv, self).__init__(
+            nn.Conv2d(in_channels, num_classes, kernel_size=1)
+        )
+ 
+class UNet(nn.Module):
+    def __init__(self,
+                 in_channels: int = 1,  # 默认输入图像的通道数为1，这里一般黑白图像为1，而彩色图像为3
+                 num_classes: int = 1,  # 默认输出的分类类别数为2
+                 # 默认基础通道为64，这里也可以改成大于2的任意2的次幂，不过越大模型的复杂度越高，参数越大，模型的拟合能力也就越强
+                 base_c: int = 64):
+    
+        super(UNet, self).__init__()
+        self.in_channels = in_channels
+        self.num_classes = num_classes
+        # 编码器的第1个双卷积层，不包含下采样过程，输入通道为1，输出通道数为base_c,这个值可以为64或者32        
+        self.in_conv = DoubleConv(in_channels, base_c)
+        # 编码器的第2个双卷积层，先进行下采样最大池化使得特征图高和宽减半，然后通道数翻倍        
+        self.down1 = Down(base_c, base_c * 2)
+        # 编码器的第3个双卷积层，先进行下采样最大池化使得特征图高和宽减半，然后通道数翻倍       
+        self.down2 = Down(base_c * 2, base_c * 4)
+        # 编码器的第4个双卷积层，先进行下采样最大池化使得特征图高和宽减半，然后通道数翻倍        
+        self.down3 = Down(base_c * 4, base_c * 8)
+        # 编码器的第5个双卷积层，先进行下采样最大池化使得特征图高和宽减半，然后通道数翻倍        
+        self.down4 = Down(base_c * 8, base_c * 16)
+ 
+        # 解码器的第1个上采样模块，首先进行一个转置卷积，使特征图的高和宽翻倍，通道数减半；
+        # 对x1（x1可以到总的forward函数中可以知道它代指什么）进行padding，使其与x2的尺寸一致，然后在第1维通道维度进行concat，通道数翻倍。
+        # 最后再进行一个双卷积层，通道数减半，高和宽不变。       
+        self.up1 = Up(base_c * 16, base_c * 8)
+        # 解码器的第2个上采样模块，操作同上        
+        self.up2 = Up(base_c * 8, base_c * 4)
+        # 解码器的第3个上采样模块，操作同上       
+        self.up3 = Up(base_c * 4, base_c * 2)
+        # 解码器的第4个上采样模块，操作同上        
+        self.up4 = Up(base_c * 2, base_c)
+        # 解码器的输出卷积模块，改变输出的通道数为分类的类别数        
+        self.out_conv = OutConv(base_c, num_classes)
+ 
+    def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
+        # 假设输入的特征图尺寸为[N, C, H, W]，[4, 3, 480, 480],依次代表BatchSize, 通道数量，高，宽；   则输出为[4, 64, 480,480]
+        x1 = self.in_conv(x)
+        # 输入的特征图尺寸为[4, 64, 480, 480];  输出为[4, 128, 240,240]
+        x2 = self.down1(x1)
+        # 输入的特征图尺寸为[4, 128, 240,240];  输出为[4, 256, 120,120]
+        x3 = self.down2(x2)
+        # 输入的特征图尺寸为[4, 256, 120,120];  输出为[4, 512, 60,60]
+        x4 = self.down3(x3)
+        # 输入的特征图尺寸为[4, 512, 60,60];  输出为[4, 1024, 30,30]
+        x5 = self.down4(x4)
+        
+        # 输入的特征图尺寸为[4, 1024, 30,30];  输出为[4, 512, 60, 60]
+        x = self.up1(x5, x4)
+        # 输入的特征图尺寸为[4, 512, 60,60];  输出为[4, 256, 120, 120]
+        x = self.up2(x, x3)
+        # 输入的特征图尺寸为[4, 256, 120,120];  输出为[4, 128, 240, 240]
+        x = self.up3(x, x2)
+        # 输入的特征图尺寸为[4, 128, 240,240];  输出为[4, 64, 480, 480]
+        x = self.up4(x, x1)
+        # 输入的特征图尺寸为[4, 64, 480,480];  输出为[4, 2, 480, 480]
+        logits = self.out_conv(x)
+ 
+        return logits
+
+# import torch
+# import torch.nn as nn
+# from collections import OrderedDict
+
+# class UNet(nn.Module):
+#     def __init__(self, in_channels=1, out_channels=1, init_features=64):
+#         super(UNet, self).__init__()
+#         features = init_features
+#         # 编码器部分
+#         self.encoder1 = UNet._block(in_channels, features, name="enc1")
+#         self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
+#         self.encoder2 = UNet._block(features, features*2, name="enc2")
+#         self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
+#         self.encoder3 = UNet._block(features*2, features*4, name="enc3")
+#         self.pool3 = nn.MaxPool2d(kernel_size=2, stride=2)
+#         self.encoder4 = UNet._block(features*4, features*8, name="enc4")
+#         self.pool4 = nn.MaxPool2d(kernel_size=2, stride=2)
+        
+#         # 中间瓶颈层
+#         self.bottleneck = UNet._block(features*8, features*16, name="bottleneck")
+        
+#         # 解码器部分
+#         self.upconv4 = nn.ConvTranspose2d(features*16, features*8, kernel_size=2, stride=2)
+#         self.decoder4 = UNet._block(features*8 * 2, features*8, name="dec4")
+#         self.upconv3 = nn.ConvTranspose2d(features*8, features*4, kernel_size=2, stride=2)
+#         self.decoder3 = UNet._block(features*4 * 2, features*4, name="dec3")
+#         self.upconv2 = nn.ConvTranspose2d(features*4, features*2, kernel_size=2, stride=2)
+#         self.decoder2 = UNet._block(features*2 * 2, features*2, name="dec2")
+#         self.upconv1 = nn.ConvTranspose2d(features*2, features, kernel_size=2, stride=2)
+#         self.decoder1 = UNet._block(features * 2, features, name="dec1")
+        
+#         # 输出层：使用1×1卷积得到目标通道数
+#         self.conv = nn.Conv2d(features, out_channels, kernel_size=1)
+    
+#     def forward(self, x):
+#         # 编码器
+#         enc1 = self.encoder1(x)              # 128×128 -> 128×128
+#         enc2 = self.encoder2(self.pool1(enc1)) # 128×128 -> 64×64
+#         enc3 = self.encoder3(self.pool2(enc2)) # 64×64  -> 32×32
+#         enc4 = self.encoder4(self.pool3(enc3)) # 32×32  -> 16×16
+        
+#         # 瓶颈层
+#         bottleneck = self.bottleneck(self.pool4(enc4)) # 16×16 -> 8×8
+        
+#         # 解码器
+#         dec4 = self.upconv4(bottleneck)      # 8×8 -> 16×16
+#         dec4 = torch.cat((dec4, enc4), dim=1)  # 拼接对应编码器层
+#         dec4 = self.decoder4(dec4)
+        
+#         dec3 = self.upconv3(dec4)            # 16×16 -> 32×32
+#         dec3 = torch.cat((dec3, enc3), dim=1)
+#         dec3 = self.decoder3(dec3)
+        
+#         dec2 = self.upconv2(dec3)            # 32×32 -> 64×64
+#         dec2 = torch.cat((dec2, enc2), dim=1)
+#         dec2 = self.decoder2(dec2)
+        
+#         dec1 = self.upconv1(dec2)            # 64×64 -> 128×128
+#         dec1 = torch.cat((dec1, enc1), dim=1)
+#         dec1 = self.decoder1(dec1)
+        
+#         # 输出去噪图像
+#         return self.conv(dec1)
+    
+#     @staticmethod
+#     def _block(in_channels, features, name):
+#         return nn.Sequential(OrderedDict([
+#             (name + "_conv1", nn.Conv2d(in_channels, features, kernel_size=3, padding=1, bias=False)),
+#             (name + "_bn1", nn.BatchNorm2d(features)),
+#             (name + "_relu1", nn.ReLU(inplace=True)),
+#             (name + "_conv2", nn.Conv2d(features, features, kernel_size=3, padding=1, bias=False)),
+#             (name + "_bn2", nn.BatchNorm2d(features)),
+#             (name + "_relu2", nn.ReLU(inplace=True))
+#         ]))
+
+

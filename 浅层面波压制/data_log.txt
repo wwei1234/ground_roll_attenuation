@@ -1,0 +1,16 @@
+                    shot_num        source_position         type                sample_interval(ms)
+
+dataset1_260        260                 24                  synthetic               0.25
+
+dataset2_260        260                 24                  synthetic               0.25
+
+dataset3_260        260                 24                  synthetic               0.25
+
+dataset4_700        700                 24                  synthetic               0.25
+    
+modified_SN03       168                 12-35               field                   0.25
+
+modified_SN04       168                 12-35               field                   0.25
+
+modified_SN05       168                 12-35               field                   0.25
+

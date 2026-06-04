@@ -1,0 +1,1052 @@
+%\documentclass[a4paper,fleqn,longmktitle]{cas-dc}
+\documentclass[a4paper,fleqn]{cas-dc}
+\usepackage{subcaption}
+%\usepackage[authoryear,longnamesfirst]{natbib}
+\usepackage[authoryear]{natbib}
+% \usepackage[numbers]{natbib}
+\usepackage{float}
+\sloppy
+\begin{document}
+\let\WriteBookmarks\relax
+\def\floatpagepagefraction{1}
+\def\textpagefraction{.001}
+\title[mode=title]{Seismic Ground Roll Attenuation Based on Dual-Mask Self-Supervised Learning}                      
+\tnotemark[1,2]
+\shortauthors{Wei Wang et~al.}
+\shorttitle{Ground Roll Attenuation}
+
+\tnotetext[1]{This document is the results of the research
+   project funded by the National Science Foundation.}
+
+\tnotetext[2]{The second title footnote which is a longer text matter
+   to fill through the whole text width and overflow into
+   another line in the footnotes area of the first page.}
+
+\author[1]{Wei Wang}[orcid=0009-0001-3956-5426]
+
+\affiliation[1]{organization={the College for Elite Engineers, China University of Geosciences, Wuhan},
+                addressline={No. 388, Lumo Road, Hongshan District},
+                city={Wuhan},
+                postcode={430074},
+                state={Hubei},
+                country={China}}
+                
+\author[2]{Qianggong Song}
+
+\affiliation[2]{organization={National Engineering Research Center of Oil and Gas Exploration Computer Software, BGP Inc., CNPC},
+                addressline={No. 189, Fanyang West Road},
+                city={Zhuozhou},
+                postcode={072751},
+                state={Hebei},
+                country={China}}
+
+\author[1]{Hanming Gu}[orcid=0000-0001-9641-3499]
+\cormark[1]
+\ead{hmgu@cug.edu.cn}
+\cortext[cor1]{Corresponding author}
+
+\begin{abstract}
+In land reflection seismic exploration, ground roll, characterized by high energy, low frequency, and low apparent velocity, severely contaminates reflection signals and degrades the signal-to-noise ratio (SNR). Conventional transform-domain methods often damage useful signals when ground roll overlaps with reflections in frequency and apparent velocity. Supervised deep learning methods are limited by the scarcity of clean labeled data, while existing self-supervised and unsupervised approaches are prone to training bias caused by near-offset dominant ground roll and show insufficient capability in recovering weak reflections.
+To address these issues, we propose a Dual-Mask Self-Supervised Learning (DMSSL) method for ground roll attenuation. The key idea is to reformulate ground roll suppression as a local signal reconstruction problem by treating ground roll-dominated regions as missing data. Specifically, dual masks are collaboratively designed to separately constrain ground roll and non-ground roll regions, which effectively suppresses high-energy interference, mitigates training bias, and enhances the recovery of weak reflection signals from contextual information.
+The proposed method is implemented using an attention-based CU-Net architecture and evaluated on both synthetic and field data. Compared with conventional F-K filtering and standard U-Net, the results demonstrate that the proposed method achieves superior ground roll attenuation while preserving reflection fidelity, indicating its effectiveness and practical applicability.
+\end{abstract}
+
+
+\begin{highlights}
+\item A novel Dual-Mask Self-Supervised Learning (DMSSL) framework is proposed for ground roll attenuation, which reformulates the problem as a local signal reconstruction task by treating ground roll-dominated regions as missing data.
+\item A dual-mask strategy is designed to collaboratively constrain ground roll and non-ground roll regions, effectively mitigating training bias caused by high-energy ground roll and enhancing the recovery of weak reflection signals.
+\item An attention-based CU-Net architecture is developed to implement the proposed framework, and extensive experiments on synthetic and field data demonstrate superior performance over conventional methods in both noise suppression and signal preservation.
+\end{highlights}
+
+\begin{keywords}
+ground-roll attenuation \sep self-supervised learning \sep dual-mask strategy \sep seismic processing
+\end{keywords}
+
+\maketitle
+\section{Introduction}
+
+In land seismic reflection exploration, ground roll represents one of the most prevalent and 
+destructive coherent interferences, characterized by high amplitude, low frequency, and low 
+apparent velocity. It severely masks effective reflection signals in seismic records, 
+significantly degrades the signal-to-noise ratio (SNR) of seismic data, and poses serious 
+challenges to subsequent fine processing, structural imaging quality, and geological 
+interpretation accuracy. Therefore, how to efficiently and accurately attenuate ground roll 
+while preserving the amplitude fidelity of effective signals has long been a fundamental 
+problem in seismic data processing.
+
+Early ground roll attenuation techniques were primarily based on the characteristic differences 
+between ground roll and reflection waves in specific transform domains. Representative methods 
+include the classical frequency-wavenumber (F-K) filtering \citep{hosseini2015shearlet, 
+chen2014random}, $\tau$-$p$ transform \citep{mitchell1990efficient}, Radon transform 
+\citep{naghadeh2021retrieving}, curvelet transform \citep{yuan2018ground, wang2021ground, 
+naghizadeh2018ground}, and various wavelet-based methods. These conventional approaches 
+perform well when the characteristics of ground roll and reflection waves are distinctly 
+separable. However, due to the complexity of near-surface conditions and the dispersive 
+nature of ground roll, significant overlap often exists between ground roll and reflection 
+waves in both frequency and apparent velocity. Such overlap makes it difficult for 
+transform-domain methods to simultaneously eliminate strong ground roll and preserve 
+reflection signals, frequently resulting in either signal damage or residual noise.
+
+To overcome these limitations, researchers have proposed a series of improved transform-domain 
+ground roll attenuation methods. \citet{mehr2013innovative} proposed a ground roll attenuation 
+method based on the Rational-Dilation Wavelet Transform (RDWT), which offers greater 
+flexibility in redundancy and Q-factor selection compared with conventional wavelet transforms, 
+achieving better reflection signal preservation than F-K and bandpass filtering. 
+\citet{wu2024amplitude} proposed an amplitude-preserving ground roll suppression method in 
+the time-frequency domain based on the Gabor transform, achieving fine separation of ground 
+roll and reflections in both the time and frequency domains. \citet{iranimehr2021seismic} 
+proposed a wavelet-domain split Bregman (WDSB) method combining F-K filtering with the split 
+Bregman iterative algorithm to address inadequate ground roll attenuation under high random 
+noise conditions. \citet{yuan2022adaptive} proposed a local nonlinear filtering (LNF)-based 
+ground roll attenuation method that constructs and optimizes a ground roll model through a 
+similarity coefficient algorithm and a weighted correction strategy, demonstrating superior 
+signal preservation especially for irregular data. \citet{xiao2022ground} applied 
+noise-assisted multivariate empirical mode decomposition (NA-MEMD) to multicomponent seismic 
+data for ground roll suppression by decomposing intrinsic mode functions and removing 
+low-frequency components. \citet{cai2018ground} proposed a gradient flow regularization 
+method that separates ground roll from reflections by constructing gradient flows and 
+regularizing seismic signals in an optimization model, improving lateral coherence of 
+reflection signals. \citet{jin2024improvement} proposed an inverse dispersion ground roll 
+attenuation method that linearizes ground roll by compensating for dispersion effects and 
+then applies F-K filtering for efficient denoising. \citet{karsli2004using} proposed an 
+improved Wiener--Levinson algorithm for ground roll extraction and suppression without 
+reducing the signal bandwidth. Although these improved methods partially alleviate the 
+difficulties caused by spectral overlap between ground roll and reflections, they remain 
+fundamentally reliant on linear separability assumptions in the transform domain, making 
+them inadequate for handling the variability of ground roll under complex near-surface 
+conditions.
+
+In recent years, deep learning has provided breakthrough solutions for ground roll 
+attenuation owing to its powerful nonlinear mapping and adaptive feature extraction 
+capabilities. Under the supervised learning framework, convolutional neural network 
+(CNN)-based methods have been extensively studied \citep{xing2023ground}. U-Net establishes 
+input-output mappings through its encoder-decoder mechanism \citep{sun2024ground}; residual 
+networks further enhance denoising performance through residual learning \citep{lan2023seismic}; 
+while generative adversarial networks (GANs) apply image-to-image translation to seismic 
+denoising, producing more realistic and amplitude-faithful results \citep{yuan2020ground}. 
+To overcome the limitations of standard CNNs in receptive field size and multi-scale feature 
+extraction, various improved architectures have been proposed. \citet{zhang2022ground} 
+proposed a dual-filter-bank CNN (DFB-CNN) that uses two CNNs with different kernel sizes 
+to extract both wide-scale and narrow-scale features. \citet{yan2025ground} fused multi-scale 
+decomposition with an attention mechanism network to predict ground roll coefficients in 
+higher-dimensional transform domains. \citet{yang2023deep} proposed a supervised learning 
+framework combining soft-attention residual learning with multi-branch feature extraction, 
+demonstrating effective ground roll removal even with limited training samples. 
+\citet{gao2024surface} proposed a deformable convolutional wavelet transform network 
+combining the advantages of deformable convolution and wavelet transforms to enhance the 
+preservation of seismic event continuity. \citet{li2024conditional} proposed a conditional 
+denoising diffusion probabilistic model (c-DDPM) for ground roll attenuation and reflection 
+wave recovery. However, these purely data-driven supervised methods are highly dependent on 
+large-scale, high-quality labeled training samples, which are difficult to obtain in practice.
+
+To address the label dependency problem, unsupervised and self-supervised learning strategies 
+have become mainstream research directions. \citet{son2024ground} proposed a dual-model 
+self-supervised selective learning method for ground roll attenuation, demonstrating the 
+feasibility of effective learning without labeled data. \citet{liu2023unsupervised} proposed 
+an unsupervised deep learning approach that applies linear moveout (LMO) or normal moveout 
+(NMO) corrections to the horizontal component, using a generative network to learn 
+self-similar effective signals in seismic data. \citet{liu2024self} proposed a self-supervised 
+ground roll suppression method---Blind-Fan Networks---which introduces directionally 
+constrained noise masks to prevent the network from learning the coherent characteristics 
+of ground roll, thereby enabling automatic attenuation of aliased ground roll without clean 
+labels. \citet{xia2024unsupervised} proposed an unsupervised ground roll suppression method 
+(WPI-SD) that constructs a loss function using wavelet prior information to guide the network 
+in learning the distribution of seismic reflections without labeled data. 
+\citet{sun2025signal} proposed a signal separation method combining local orthogonalization 
+theory with unsupervised learning, achieving automatic separation of ground roll and 
+reflections through local uncorrelated constraints without labeled data. 
+\citet{oliveira2021self} proposed a self-supervised two-step method combining CNN and cGAN 
+for ground roll attenuation in pre-stack seismic data, enabling automatic identification 
+and filtering of contaminated regions without labels or reference data. However, the 
+aforementioned methods still face significant challenges in practical scenarios where strong 
+near-source ground roll dominates. The high-energy nature of ground roll induces dominant 
+bias during unsupervised training, causing the network to fit ground roll patterns while 
+neglecting weak reflection signals, thereby limiting the practicability of these methods 
+under complex near-surface conditions.
+
+To address these challenges, this paper proposes a Dual-Mask Self-Supervised Learning (DMSSL) 
+method for ground roll attenuation. The method treats the near-source ground roll-dominated 
+region as missing data and reformulates ground roll attenuation as a local signal 
+reconstruction task through the collaborative design of dual masks. During training, a 
+Gaussian mask isolates the ground roll region to eliminate its high-energy interference, 
+while a blind-fan mask simulating the spatiotemporal distribution of ground roll is applied 
+to the non-ground roll region, driving the network to learn reflection wave reconstruction 
+from neighboring information. During inference, a Gaussian mask is directly applied to the 
+ground roll region, and the trained network reconstructs the reflection waves while fully 
+preserving valid reflection signals in the non-ground roll region. The proposed method is 
+implemented using a CU-Net with an integrated attention mechanism, and is compared against 
+F-K filtering and conventional U-Net on both synthetic and field seismic data, demonstrating 
+clear advantages in ground roll attenuation and reflection wave fidelity.
+
+
+\section{Ground Roll Identification via Gabor Transform}
+In field seismic data, ground roll exhibits significantly stronger amplitude than reflection 
+waves, such that time segments containing ground roll possess considerably higher energy than 
+those without. Based on this characteristic, ground roll regions can be identified by 
+computing the energy of each time segment and applying an appropriate threshold. To this end, 
+this paper introduces the Gabor transform, which employs an analysis window function sliding 
+along the time axis to decompose the original seismic signal into a series of consecutive 
+short-time segments, each of which is subsequently subjected to a Fourier transform, yielding 
+a joint time-frequency representation of the signal. The mathematical definition is:
+
+\begin{equation}
+G_x(\tau, f) = \int_{-\infty}^{+\infty} x(t) \cdot g(t - \tau) \cdot e^{-j2\pi ft} \, dt
+\end{equation}
+
+where $G_x(\tau, f)$ denotes the Gabor time-frequency spectrum of seismic trace $x$, $\tau$ 
+represents the translation along the time axis, $t$ is time, $f$ is frequency, and $g(t)$ 
+is the analysis window function.
+
+For discrete time signals, a normalized Gaussian function is typically adopted as the window 
+function:
+
+\begin{equation}
+g(t) = A \cdot \exp\left(-\frac{(t - t_0)^2}{2\sigma^2}\right)
+\end{equation}
+
+where $\sigma$ is the effective width of the Gaussian window, $t_0$ denotes the center time 
+of the window, and $A$ is a normalization constant. The corresponding segment signal and its 
+mean amplitude energy $E$ are defined as:
+
+\begin{equation}
+E = \frac{1}{N} \sum_{n=1}^{N} \left| x_k(n) \right|
+\end{equation}
+
+where $N$ denotes the number of sampling points and $k$ is the index of the time window. 
+When $E$ exceeds the prescribed threshold, the segment is identified as containing ground 
+roll; otherwise, it is classified as ground roll-free. Once the ground roll regions are 
+identified, signal reconstruction can be performed exclusively within those regions, thereby 
+maximally protecting the valid reflection signals.
+
+The Gabor transform is applied to the seismic trace shown in Fig.~\ref{fig1}(a), and 
+Fig.~\ref{fig1}(b) presents a representative extracted segment. By computing the mean 
+amplitude energy across all segments of each trace, the energy distribution map shown in 
+Fig.~\ref{fig1}(c) is obtained. The analysis uses a Gaussian window width of 0.015~s 
+and a sliding step of 0.002~s. As shown in Fig.~\ref{fig1}(c), when the ground roll 
+discrimination threshold is set to 0.08, the time interval from 0.05~s to 0.07~s is 
+identified as the ground roll region, which is in close agreement with the shaded region 
+in Fig.~\ref{fig1}(a), demonstrating that the proposed method can accurately and 
+effectively identify ground roll development zones.
+
+\begin{figure*}[t]
+    \centering
+    \begin{subfigure}[b]{\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure1a}
+        \caption{}
+    \end{subfigure}
+
+    \vspace{0.1em}
+
+    \begin{subfigure}[b]{\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure1b}
+        \caption{}
+    \end{subfigure}
+
+    \vspace{0.1em}
+
+    \begin{subfigure}[b]{\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure1c}
+        \caption{}
+    \end{subfigure}
+    \caption{Ground roll identification via Gabor transform. 
+    (a) Multiplication of a seismic trace with the Gaussian time window. 
+    (b) Extracted seismic trace segment. 
+    (c) Mean amplitude energy distribution map.}
+    \label{fig1}
+\end{figure*}
+
+
+\section{Dual-Mask Self-Supervised Strategy}
+In shot gather records, ground roll exhibits extremely strong energy and spatial continuity, 
+severely obscuring effective reflection wave information. For self-supervised learning 
+methods, retaining high-energy ground roll in training labels introduces a significant 
+energy inconsistency between the label distribution and the expected output, limiting the 
+network's signal recovery performance and generalization capability. Meanwhile, the dominant 
+energy of ground roll biases the network's feature extraction toward ground roll patterns 
+during training, suppressing the learning of weak reflection features. From a task 
+perspective, when the noise-dominated region contains no valid signal, ground roll 
+attenuation can be reformulated from a signal separation problem into a signal reconstruction 
+problem: the network need only infer the obscured or missing reflection components based on 
+the spatial continuity and coherence of adjacent reflection events.
+
+Based on these observations, this paper proposes a Dual-Mask Self-Supervised Learning 
+(DMSSL) strategy for ground roll attenuation, whose workflow is illustrated in 
+Fig.~\ref{fig2}. During training, the ground roll identification algorithm is 
+first applied to locate the ground roll-dominated region, which is then replaced with 
+Gaussian random values to construct the training label. A blind-fan mask is subsequently 
+applied to the non-ground roll region, with the masked positions likewise replaced by 
+Gaussian random values to form the training input. The construction of the blind-fan mask 
+is illustrated in Fig.~\ref{fig3}: a set of active pixels is randomly selected 
+within the non-ground roll region at a prescribed density, and the mask coverage positions 
+are determined by extending the lines connecting the source point to each active pixel, such 
+that the mask geometry conforms to the linear propagation characteristics of ground roll in 
+both spatial and temporal dimensions. The mask density must balance two competing 
+considerations: excessively high density leads to insufficient contextual information for 
+the network, impairing learning; while excessively low density causes overfitting and 
+reduces generalization. The network loss function is computed exclusively within the 
+non-ground roll region, compelling the model to predict the obscured reflection signals 
+using neighboring valid wave information. During inference, a Gaussian mask is applied to 
+the ground roll region of the input shot gather. The trained network treats this as a 
+missing region analogous to the blind-fan mask encountered during training, and reconstructs 
+the signals in that region based on the characteristics of neighboring reflection waves.
+
+\begin{figure*}[t]
+    \centering
+    \includegraphics[width=\textwidth]{figs/figure2}
+    \caption{Workflow of the Dual-Mask Self-Supervised Learning strategy for ground roll 
+    attenuation.}
+    \label{fig2}
+\end{figure*}
+
+The dual-mask collaborative design embodies two core intentions. First, applying a blind-fan 
+mask with a geometry that mimics the spatiotemporal distribution of ground roll to the 
+non-ground roll region during training enables the network to develop reconstruction 
+capability for linearly missing regions, allowing it to naturally adapt to signal recovery 
+in ground roll-dominated regions during inference. Second, applying a Gaussian mask uniformly 
+to the ground roll region serves two critical functions: it eliminates the interference of 
+high-amplitude ground roll on feature extraction, guiding the model to focus on reflection 
+wave pattern learning; and it ensures distributional consistency between training and 
+inference inputs while maintaining energy consistency between the training labels and the 
+expected outputs. Through this design, the dual-mask strategy transforms the inherently 
+ill-posed signal separation problem into a more tractable signal reconstruction problem, 
+enabling the network to reliably recover obscured reflection information during inference 
+by leveraging the spatial coherence of neighboring valid reflections.
+
+\begin{figure*}[t]
+    \centering
+    \includegraphics[width=\textwidth]{figs/figure3}
+    \caption{Sample and label construction workflow.}
+    \label{fig3}
+\end{figure*}
+
+\subsection{Network Architecture}
+
+The network model employed in this study is CU-Net, an improved variant of U-Net. U-Net 
+integrates shallow spatial details and deep semantic features across multiple scales through 
+its encoder-decoder structure and skip connections, making it well-suited for local 
+reconstruction tasks in seismic signals. However, conventional U-Net assigns equal weights 
+to all channels and spatial positions during feature fusion, without explicitly modeling the 
+importance differences among features. The attention mechanism addresses this by adaptively 
+allocating weights, enabling the network to prioritize neighboring features with stronger 
+spatial coherence to the target region during reconstruction, suppressing irrelevant feature 
+interference, and thereby improving the reconstruction accuracy of missing reflection waves. 
+To this end, this paper incorporates the Convolutional Block Attention Module (CBAM) into 
+each encoder and decoder layer, enabling the network to adaptively focus on feature channels 
+and spatial regions that contribute more to reflection wave reconstruction, thus enhancing 
+the model's ability to perceive and recover weak reflection signals. The overall architecture 
+of CU-Net is shown in Fig.~\ref{fig4}, where downsampling is performed using 
+$2\times2$ max-pooling layers and upsampling is implemented via transposed convolutions.
+
+\begin{figure*}[t]
+    \centering
+    \includegraphics[width=\textwidth]{figs/figure4}
+    \caption{Architecture of the CU-Net.}
+    \label{fig4}
+\end{figure*}
+
+The CBAM module is illustrated in Fig.~\ref{fig5}, comprising a Channel Attention Module 
+(CAM) and a Spatial Attention Module (SAM). The CAM adaptively weights the importance of 
+each feature channel: global max-pooling and global average-pooling are applied to the input 
+features separately, and both outputs are passed through a shared-weight multilayer perceptron 
+(MLP), element-wise summed, and then activated by a sigmoid function to generate channel 
+attention weights $\mathbf{M}_c$, which are multiplied channel-wise with the input features 
+to perform channel-wise feature recalibration. Building upon the CAM output, the SAM further 
+models the spatial attention distribution: max-pooling and average-pooling are applied along 
+the channel dimension separately, the two outputs are concatenated and compressed to a single 
+channel via a $7\times7$ convolution, and a sigmoid activation generates spatial attention 
+weights $\mathbf{M}_s$, which are multiplied element-wise with the input features to produce 
+the final enhanced features. Through the collaborative attention modeling across both channel 
+and spatial dimensions, CBAM effectively suppresses irrelevant background features and 
+enhances the network's ability to capture the spatial distribution patterns of reflection waves.
+
+\begin{figure*}[t]
+    \centering
+    \begin{subfigure}[b]{\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure5a}
+        \caption{}
+    \end{subfigure}
+
+    \vspace{0.1em}
+
+    \begin{subfigure}[b]{\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure5b}
+        \caption{}
+    \end{subfigure}
+    \caption{CBAM architecture. (a) Channel Attention Module and Spatial Attention Module. 
+    (b) Overall CBAM structure.}
+    \label{fig5}
+\end{figure*}
+
+Regarding the loss function, this paper adopts the Mean Absolute Error (MAE) as the training 
+objective, computed exclusively at pixel positions within the non-ground roll region:
+
+\begin{equation}
+L_{\mathrm{MAE}} = \frac{1}{|\Omega|} \sum_{i \in \Omega} \left| y_i - \hat{y}_i \right|
+\end{equation}
+
+where $\Omega$ denotes the set of pixel indices in the non-ground roll region, $y_i$ is the 
+ground truth value at the $i$-th pixel, and $\hat{y}_i$ is the network prediction. 
+Constraining the loss to the non-ground roll region rather than the entire image focuses the 
+supervisory signal on the reconstruction error at masked positions, ignoring the Gaussian 
+random noise in the labeled ground roll region, and drives the network to learn how to 
+recover missing reflection signals by exploiting neighboring contextual information.
+
+
+\section{Experiments}
+
+\subsection{Experiments on Synthetic Data}
+
+To validate the feasibility of the proposed method, experiments are first conducted on a 
+synthetic dataset. Clean reflection data are obtained by finite-difference forward modeling 
+of the elastic wave equation applied to the model with absorbing boundary conditions, while 
+data containing ground roll are obtained by applying free-surface boundary conditions in the 
+finite-difference elastic wave equation forward modeling. The subsurface model adopts a 
+simple cave model as shown in Fig.~\ref{fig6}, with a depth of 50~m. From top to bottom, 
+the model consists of a low-velocity overburden layer 
+with a thickness of 20~m and a velocity of 800~m/s, an underlying limestone layer with a 
+thickness of 30~m and a velocity of 2000~m/s, and a water-filled cave anomaly with a top 
+burial depth of 25~m, dimensions of 16~m~$\times$~8~m, and a velocity of 1500~m/s. The 
+forward modeling employs a receiver interval of 2~m and a sampling interval of 0.25~ms, 
+generating a total of 700 shot records.
+
+\begin{figure*}[ht]
+    \centering
+    \includegraphics[width=0.9\textwidth]{figs/figure6}
+    \caption{Subsurface cave model.}
+    \label{fig6}
+\end{figure*}
+
+Fig.~\ref{fig7}(a) shows one of the synthesized clean shot gathers, 
+Fig.~\ref{fig7}(b) shows the corresponding data containing surface waves;
+and Fig.~\ref{fig7}(c) illustrates the identified surface-wave region. 
+By applying a Gaussian mask replacement to the surface-wave region 
+identified in Fig.~\ref{fig7}(b), the network input shown in Fig.~\ref{fig7}(d) is obtained.
+
+
+\begin{figure*}[t]
+    \centering
+    \begin{subfigure}[b]{0.23\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure7a}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.23\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure7b}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.23\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure7c}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.23\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure7d}
+        \caption{}
+    \end{subfigure}
+    \caption{Synthetic shot gather. (a) Clean data. (b) Synthetic noisy 
+    data. (c) Identified ground roll region. (d) Network input.}
+    \label{fig7}
+\end{figure*}
+
+As shown in Fig.~\ref{fig7}(c), the high-amplitude ground roll severely obscures 
+the weaker effective reflection signals. Fig.~\ref{fig8} presents a 
+comparison of ground roll attenuation results obtained by three methods---conventional F-K 
+filtering, DMSSL-UNet, and DMSSL-CUNet---applied to Fig.~\ref{fig7}(c). 
+Figs.~\ref{fig8}(a), (d), and (g) show the attenuation results of the 
+three methods, respectively. Compared with conventional F-K filtering, the proposed DMSSL 
+method effectively suppresses ground roll interference and significantly improves the 
+continuity of effective reflection signals. Figs.~\ref{fig8}(b), (e), 
+and (h) show the ground roll components separated by each method. It can be observed that 
+the DMSSL method performs signal suppression and reconstruction exclusively within the ground 
+roll region identified by Gabor time-frequency analysis, while the valid reflection signals 
+outside the ground roll region are fully preserved. Figs.~\ref{fig8}(c), 
+(f), and (i) show the residual profiles between the attenuation results and the clean data. 
+The conventional F-K filtering causes noticeable loss of effective signals during ground roll 
+suppression, whereas the residuals of the proposed method are mainly concentrated within the 
+ground roll region, indicating substantially lower damage to valid reflection signals. 
+Comparing Figs.~\ref{fig8}(d) and (g), the CU-Net with the channel 
+attention mechanism demonstrates superior performance in reconstructing valid signals within 
+the ground roll-covered region, with improved continuity and amplitude fidelity of reflection 
+events.
+
+\begin{figure*}[t]
+    \centering
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure8a}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure8b}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure8c}
+        \caption{}
+    \end{subfigure}
+
+    \vspace{0.1em}
+
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure8d}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure8e}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure8f}
+        \caption{}
+    \end{subfigure}
+
+    \vspace{0.1em}
+
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure8g}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure8h}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure8i}
+        \caption{}
+    \end{subfigure}
+
+    \vspace{0.1em}
+
+    \begin{minipage}[b]{0.25\textwidth}
+    \end{minipage}
+    \hfill
+    \begin{minipage}[b]{0.25\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figs/figure8_colorbar}
+    \end{minipage}
+    \hfill
+    \begin{minipage}[b]{0.25\textwidth}
+    \end{minipage}
+
+    \caption{Comparison of ground roll attenuation performance: F-K filtering, DMSSL-UNet, 
+    and DMSSL-CUNet. (a), (d), (g) Denoised results using F-K, DMSSL-UNet, and DMSSL-CUNet. 
+    (b), (e), (h) Removed ground roll components. (c), (f), (i) Residuals between the clean 
+    data and the denoised results.}
+    \label{fig8}
+\end{figure*}
+
+To quantitatively evaluate the ground roll attenuation performance of each method, SSIM and 
+PSNR are adopted as evaluation metrics to systematically compare the differences between 
+each method's output and the clean shot gather. The results are summarized in 
+Table~\ref{tab:synthetic}. The original noisy data yields a PSNR of 22.51~dB and an SSIM 
+of 0.80, establishing a low baseline. F-K filtering improves the PSNR to 29.02~dB with a 
+marginal SSIM improvement to 0.81, indicating limited enhancement. In contrast, the proposed 
+DMSSL method achieves substantial improvements on both metrics: DMSSL-UNet raises the PSNR 
+to 40.60~dB with an SSIM of 0.86, while DMSSL-CUNet further improves the PSNR to 42.24~dB 
+with an SSIM of 0.87, achieving the best performance among all compared methods. These 
+results demonstrate that the incorporation of the attention mechanism enhances the network's 
+ability to reconstruct valid signals, and the proposed method exhibits higher reliability 
+and fidelity in signal reconstruction within ground roll-covered regions.
+
+\begin{table}[width=.9\linewidth, cols=3, pos=h]
+\caption{Quantitative Comparison of Ground Roll Suppression Performance}
+\label{tab:synthetic}
+\begin{tabular*}{\tblwidth}{@{} LCC @{}}
+\toprule
+Method & SSIM & PSNR (dB) \\
+\midrule
+Noisy        & 0.80 & 22.51 \\
+F-K          & 0.81 & 29.02 \\
+DMSSL-UNet   & 0.86 & 40.60 \\
+DMSSL-CUNet  & 0.87 & 42.24 \\
+\bottomrule
+\end{tabular*}
+\end{table}
+
+Figs.~\ref{fig9}(a), (b), and (c) show the F-K spectra of the clean shot gather, 
+pure ground roll, and noisy shot gather, respectively. Due to the relatively shallow model 
+depth adopted in this study, ground roll exhibits comparatively higher frequencies. The 
+ground roll and effective reflection signals partially overlap in both the frequency and 
+wavenumber domains. Figs.~\ref{fig9}(d), (e), and (f) present the F-K spectra 
+of the ground roll attenuation results obtained by F-K filtering, DMSSL-UNet, and 
+DMSSL-CUNet, respectively. Fig.~\ref{fig9}(d) reveals that the F-K filtering 
+result retains noticeable residual ground roll energy. In contrast, Figs.~\ref{fig9}(e) 
+and (f) show no apparent ground roll components. Figs.~\ref{fig9}(g), (h), and 
+(i) display the F-K spectra of the ground roll components removed by the three methods. 
+Compared with the pure ground roll F-K spectrum shown in Fig.~\ref{fig9}(b), 
+conventional F-K filtering can only remove ground roll within high-wavenumber and specified 
+frequency ranges. In contrast, the energy distribution of the ground roll components removed 
+by the proposed method is nearly identical to that of the pure ground roll added to the clean 
+shot gather in the F-K domain.
+
+\begin{figure*}[t]
+    \centering
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure9a}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure9b}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure9c}
+        \caption{}
+    \end{subfigure}
+
+    \vspace{0.1em}
+
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure9d}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure9e}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure9f}
+        \caption{}
+    \end{subfigure}
+
+    \vspace{0.1em}
+
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure9g}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure9h}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure9i}
+        \caption{}
+    \end{subfigure}
+
+    \vspace{0.1em}
+
+    \begin{minipage}[b]{0.25\textwidth}
+    \end{minipage}
+    \hfill
+    \begin{minipage}[b]{0.25\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figs/figure9_colorbar}
+    \end{minipage}
+    \hfill
+    \begin{minipage}[b]{0.25\textwidth}
+    \end{minipage}
+    \caption{Comparison of ground roll attenuation performance: F-K filtering, DMSSL-UNet, 
+    and DMSSL-CUNet. (a), (d), (g) Denoised results using F-K, DMSSL-UNet, and DMSSL-CUNet. 
+    (b), (e), (h) Removed ground roll components. (c), (f), (i) Residuals between the clean 
+    data and the denoised results.}
+    \label{fig9}
+\end{figure*}
+
+\subsection{Experiments on Field Seismic Data}
+
+The field dataset used in this study consists of shallow seismic records acquired from a 
+survey area, comprising three seismic lines with 168 shot gathers per line. The sampling 
+interval is 0.25~ms and the receiver interval is 3~m. Fig.~\ref{fig10}(a) shows 
+one of the shot gathers containing ground roll interference. In addition to ground roll, 
+another prominent coherent interference is present at far offsets. Both types of interference 
+are suppressed simultaneously in the processing workflow. Fig.~\ref{fig10}(b) 
+shows the identified noise-dominated region, and the corresponding network input obtained 
+by applying a Gaussian mask is shown in Fig.~\ref{fig10}(c).
+
+\begin{figure*}[t]
+    \centering
+    \begin{subfigure}[b]{0.30\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure10a}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.30\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure10b}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.30\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure10c}
+        \caption{}
+    \end{subfigure}
+    \caption{Field shot gather. (a) Field noisy data. (b) Identified ground roll region. 
+    (c) Network input.}
+    \label{fig10}
+\end{figure*}
+
+Figs.~\ref{fig11}(a), (b), and (c) present the ground roll attenuation 
+results obtained by F-K filtering, DMSSL-UNet, and DMSSL-CUNet, respectively. 
+Fig.~\ref{fig11}(a) demonstrates that F-K filtering achieves limited ground 
+roll attenuation on the field shot gather. In contrast, Figs.~\ref{fig11}(b) 
+and (c) show that the DMSSL-based methods effectively suppress both the ground roll 
+interference and the linear coherent interference at far offsets. The arrows indicate that 
+DMSSL-CUNet achieves more thorough suppression than the conventional U-Net.
+
+Fig.~\ref{fig11}(d) shows the noise component removed by F-K filtering, 
+which reveals limited suppression capability: only part of the ground roll signal is removed, 
+and the coherent interference at far offsets is barely attenuated. 
+Figs.~\ref{fig11}(e) and (f) show the interference components removed by 
+the DMSSL-based methods, demonstrating that both ground roll and far-offset coherent 
+interference are simultaneously suppressed, while valid reflection signals in the 
+interference-free region are fully preserved.
+
+\begin{figure*}[t]
+    \centering
+    \begin{subfigure}[b]{0.30\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure11a}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.30\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure11b}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.30\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure11c}
+        \caption{}
+    \end{subfigure}
+
+    \vspace{0.1em}
+
+    \begin{subfigure}[b]{0.30\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure11d}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.30\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure11e}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.30\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure11f}
+        \caption{}
+    \end{subfigure}
+
+    \vspace{0.1em}
+
+    \begin{minipage}[b]{0.25\textwidth}
+    \end{minipage}
+    \hfill
+    \begin{minipage}[b]{0.25\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figs/figure11_colorbar}
+    \end{minipage}
+    \hfill
+    \begin{minipage}[b]{0.25\textwidth}
+    \end{minipage}
+
+    \caption{Comparison of ground roll attenuation performance. (a) F-K filtering. 
+    (b) DMSSL-UNet. (c) DMSSL-CUNet. (d), (e), (f) Removed ground roll components 
+    of (a), (b), (c).}
+    \label{fig11}
+\end{figure*}
+
+Fig.~\ref{fig12}(a) shows the F-K spectrum of the field noisy data, where multiple 
+coherent interferences exhibit severe overlap with effective signals in both the frequency 
+and wavenumber domains. Fig.~\ref{fig12}(b) presents the F-K filtering result: since 
+conventional F-K filtering can only separate noise that is clearly distinct from effective 
+signals in the F-K domain, its suppression of aliased interference components is limited, 
+and noticeable residual coherent noise energy remains. Figs.~\ref{fig12}(c) and (d) 
+show the attenuation results of DMSSL-UNet and DMSSL-CUNet, respectively, demonstrating 
+that the dominant coherent interference components in the original data are effectively 
+suppressed. Comparing Figs.~\ref{fig12}(c) and (d), DMSSL-CUNet achieves more 
+thorough suppression of coherent interference, with less residual coherent energy in the 
+high-frequency region of the F-K spectrum, indicating that the attention mechanism helps 
+the network focus more effectively on the characteristics of valid reflection waves during 
+reconstruction, thereby enabling more accurate signal recovery. 
+Figs.~\ref{fig12}(e), (f), and (g) show the F-K spectra of the interference 
+components removed by the three methods, further reflecting the noise extraction 
+characteristics of each approach. As shown in Fig.~\ref{fig12}(e), the components 
+removed by F-K filtering are mainly concentrated outside the linear boundaries in the F-K 
+domain, and the aliased interference cannot be effectively separated. In contrast, the 
+proposed method suppresses the vast majority of coherent noise.
+
+\begin{figure*}[t]
+    \centering
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure12a}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{minipage}[b]{0.74\textwidth}
+    \end{minipage}
+
+    \vspace{0.1em}
+
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure12b}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure12c}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure12d}
+        \caption{}
+    \end{subfigure}
+
+    \vspace{0.1em}
+
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure12e}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure12f}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure12g}
+        \caption{}
+    \end{subfigure}
+
+    \vspace{0.1em}
+
+    \begin{minipage}[b]{0.25\textwidth}
+    \end{minipage}
+    \hfill
+    \begin{minipage}[b]{0.25\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figs/figure12_colorbar}
+    \end{minipage}
+    \hfill
+    \begin{minipage}[b]{0.25\textwidth}
+    \end{minipage}
+
+    \caption{Comparison of F-K spectra. (a) Noisy data. (b), (c), (d) Denoised results of 
+    F-K filtering, DMSSL-UNet, and DMSSL-CUNet. (e), (f), (g) Removed ground roll 
+    components.}
+    \label{fig12}
+\end{figure*}
+
+
+
+\subsection{Experiments on Deep Seismic Data}
+
+To further validate the generalization capability of the proposed method under different 
+geological conditions, this section applies ground roll attenuation to a deep seismic shot 
+gather acquired from another survey area. As shown in Fig.~\ref{fig13}(a), the 
+shot record has a total duration of 3~s with a sampling interval of 4~ms. Prominent ground 
+roll interference is present near the source, severely obscuring the effective reflection 
+signals.
+
+Figs.~\ref{fig13}(b), (c), and (d) present the attenuation results of F-K 
+filtering, DMSSL-UNet, and DMSSL-CUNet, respectively, while Figs.~\ref{fig13}(e), 
+(f), and (g) show the corresponding removed noise components. Comparing the positions 
+indicated by the black arrows in Figs.~\ref{fig13}(b), (c), and (d), F-K filtering 
+achieves a certain degree of ground roll suppression for deep ground roll, but noticeable 
+residual ground roll remains near the source. In contrast, the proposed DMSSL method 
+effectively suppresses both the strong near-source ground roll and deep ground roll 
+interference, achieving more thorough attenuation. Further inspection of the black box 
+regions reveals that F-K filtering damages part of the effective reflection signals during 
+suppression, resulting in noticeably weaker reflection event amplitudes after processing. 
+The proposed method, however, produces cleaner denoised results with better event continuity 
+and improved amplitude preservation. Among the two network variants, DMSSL-CUNet achieves 
+higher reconstruction completeness in the ground roll region and more thorough suppression 
+of strong near-source ground roll compared with DMSSL-UNet. This conclusion is further 
+supported by the noise sections: the black arrow in Fig.~\ref{fig13}(e) shows that 
+the components removed by F-K filtering contain visible effective signals, whereas the noise 
+removed by the proposed method primarily exhibits ground roll characteristics with 
+significantly less signal leakage.
+
+Regarding the network architecture comparison, DMSSL-CUNet demonstrates stronger signal 
+recovery capability than DMSSL-UNet. In the strong interference region indicated by the 
+arrow in Fig.~\ref{fig13}(d), the reflection events in the CUNet result are better 
+recovered with higher amplitude fidelity, further demonstrating the advantage of the 
+attention mechanism in complex strong-interference environments.
+
+\begin{figure*}[t]
+    \centering
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure13a}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{minipage}[b]{0.74\textwidth}
+    \end{minipage}
+
+    \vspace{0.1em}
+
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure13b}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure13c}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure13d}
+        \caption{}
+    \end{subfigure}
+
+    \vspace{0.1em}
+
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure13e}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure13f}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure13g}
+        \caption{}
+    \end{subfigure}
+
+    \vspace{0.1em}
+
+    \begin{minipage}[b]{0.25\textwidth}
+    \end{minipage}
+    \hfill
+    \begin{minipage}[b]{0.25\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figs/figure13_colorbar}
+    \end{minipage}
+    \hfill
+    \begin{minipage}[b]{0.25\textwidth}
+    \end{minipage}
+    \caption{Comparison of ground roll attenuation performance. (a) Noisy data. 
+    (b) F-K filtering. (c) DMSSL-UNet. (d) DMSSL-CUNet. 
+    (e), (f), (g) Removed ground roll components of (b), (c), (d).}
+    \label{fig13}
+\end{figure*}
+
+To further analyze the ground roll attenuation performance of each method, 
+Fig.~\ref{fig14} presents the F-K spectra corresponding to each subfigure in 
+Fig.~\ref{fig13}. As shown in Fig.~\ref{fig14}(a), the ground roll 
+interference energy is primarily concentrated in the low-frequency band of 0--15~Hz, while 
+the effective reflection wave energy is mainly distributed in the 10--40~Hz range, with a 
+certain degree of overlap in the 10--15~Hz band.
+
+Comparing the F-K spectra of the three methods' attenuation results 
+(Figs.~\ref{fig14}(b), (c), (d)), F-K filtering fails to thoroughly suppress ground 
+roll below 10~Hz, and exhibits noticeable energy loss in the 20--40~Hz effective signal 
+band, indicating signal damage in the frequency overlap region between ground roll and 
+reflections. In contrast, the proposed DMSSL method achieves more thorough ground roll 
+suppression with better preservation of the effective signal band energy. Comparing 
+Figs.~\ref{fig14}(c) and (d), DMSSL-UNet and DMSSL-CUNet exhibit overall similar 
+suppression performance in the F-K domain, but both demonstrate clear advantages over F-K 
+filtering. Figs.~\ref{fig14}(e), (f), and (g) show the F-K spectra of the noise 
+components removed by the three methods. The noise removed by the proposed method exhibits 
+stronger energy and clearer linear characteristics in the F-K domain, consistent with the 
+low-velocity linear distribution pattern of ground roll, further demonstrating that the 
+proposed method can more precisely identify and suppress ground roll components.
+
+\begin{figure*}[t]
+    \centering
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure14a}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{minipage}[b]{0.74\textwidth}
+    \end{minipage}
+
+    \vspace{0.1em}
+
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure14b}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure14c}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure14d}
+        \caption{}
+    \end{subfigure}
+
+    \vspace{0.1em}
+
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure14e}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure14f}
+        \caption{}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.25\textwidth}
+        \includegraphics[width=\linewidth]{figs/figure14g}
+        \caption{}
+    \end{subfigure}
+    \caption{Comparison of F-K spectra corresponding to Fig.~\ref{fig13}. 
+    (a) Noisy data. (b) F-K filtering result. (c) DMSSL-UNet result. (d) DMSSL-CUNet 
+    result. (e), (f), (g) F-K spectra of removed ground roll components of (b), (c), (d).}
+    \label{fig14}
+\end{figure*}
+
+
+
+\section{Conclusion}
+This paper addresses the core challenges in self-supervised ground roll attenuation, namely 
+the dominant bias introduced by high-energy ground roll during network training and the 
+insufficient extraction of weak reflection features. A Dual-Mask Self-Supervised Learning 
+(DMSSL) method is proposed, which treats the ground roll-dominated region as missing data 
+and employs Gabor time-frequency analysis to identify the ground roll region. Through the 
+collaborative design of a Gaussian mask and a blind-fan mask, ground roll attenuation is 
+reformulated as a local signal reconstruction task. During training, the Gaussian mask 
+isolates the high-energy ground roll interference, while the blind-fan mask drives the 
+network to learn spatial interpolation capability for recovering reflection waves from 
+neighboring information. During inference, the network directly reconstructs the ground 
+roll region, while signals in the non-ground roll region are preserved intact, thereby 
+achieving maximum amplitude fidelity of effective signals. Based on the CU-Net architecture 
+with an integrated attention mechanism, experiments on both synthetic and field seismic data 
+demonstrate that the proposed method significantly outperforms F-K filtering and conventional 
+U-Net in both ground roll attenuation and reflection wave fidelity, validating its 
+effectiveness and practicability in strong ground roll environments.
+
+The proposed method has two limitations. First, ground roll region identification relies on 
+energy threshold determination via Gabor time-frequency analysis. When the energy difference 
+between ground roll and reflection waves is not significant, a fixed threshold is prone to 
+errors, and the threshold parameter requires manual tuning for different datasets, limiting 
+the degree of automation. Second, both the mask design and the loss constraint are tailored 
+to the spatiotemporal distribution characteristics of ground roll, and the method does not 
+directly suppress other types of interference such as multiples or random noise, leaving room 
+for improvement in scenarios with coexisting complex interferences. Future research may proceed 
+in two directions: introducing a data-driven adaptive ground 
+roll region identification module to replace manual threshold setting, and exploring a 
+joint suppression framework that incorporates priors for multiple noise types to further 
+broaden the applicability of the method.
+\appendix
+\section{My Appendix}
+\printcredits
+
+%% Loading bibliography style file
+%\bibliographystyle{model1-num-names}
+\bibliographystyle{cas-model2-names}
+% Loading bibliography database
+\bibliography{cas-refs}
+\end{document}
+
