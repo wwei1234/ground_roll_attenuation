@@ -1,6 +1,5 @@
-# train.py
+# train_velocity.py
 import os
-import csv
 import numpy as np
 import torch
 import torch.nn as nn
@@ -8,7 +7,12 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-import matplotlib.pyplot as plt
+
+from dataset import SeismicDataset
+from src.utils import (
+    ensure_dir, get_file_list, import_model_class, save_loss_csv, plot_loss_curve,
+)
+from src.losses import continuity_loss, velocity_range_loss
 
 # ==================== 用户配置区（请在此处修改）====================
 # 路径配置
@@ -49,99 +53,6 @@ VAL_LOSS_CSV = "./val_loss_velocity.csv"
 LOSS_CURVE_PNG = "./loss_curve_velocity.png"
 # ================================================================
 
-
-def ensure_dir(dir_path):
-    if not os.path.exists(dir_path):
-        os.makedirs(dir_path)
-
-
-def get_file_list(data_dir, exclude_list=None):
-    """获取文件夹中所有 .npy 文件，排除测试集"""
-    if exclude_list is None:
-        exclude_list = []
-    files = sorted([f for f in os.listdir(data_dir) if f.endswith('.npy')])
-    files = [f for f in files if f not in exclude_list]
-    return files
-
-
-def continuity_loss(pred_prob, epsilon=1e-3):
-    """
-    连续性/平滑性约束（Spatial Continuity）
-    基于 Charbonnier TV 损失，鼓励预测的面波区域为连续条带，
-    惩罚不连续性、孤立点和锯齿状边缘。
-    
-    pred_prob: 模型输出的概率图 (B, C, T, X)，已 sigmoid
-    """
-    # 时间方向梯度
-    grad_t = pred_prob[:, :, 1:, :] - pred_prob[:, :, :-1, :]
-    # 空间方向（道方向）梯度
-    grad_x = pred_prob[:, :, :, 1:] - pred_prob[:, :, :, :-1]
-    
-    # 对齐维度
-    grad_t = grad_t[:, :, :, :-1]
-    grad_x = grad_x[:, :, :-1, :]
-    
-    # Charbonnier 惩罚：sqrt(x^2 + epsilon^2)，比 L1/L2 更适合保持边缘
-    loss_t = torch.mean(torch.sqrt(grad_t ** 2 + epsilon ** 2))
-    loss_x = torch.mean(torch.sqrt(grad_x ** 2 + epsilon ** 2))
-    
-    return loss_t + loss_x
-
-
-def velocity_range_loss(pred_prob, dx, dt, v_min, v_max, epsilon=1e-6):
-    """
-    速度范围约束损失（Velocity Range Constraint）
-    约束预测面波区域的局部同相轴斜率对应的速度在 [v_min, v_max] 范围内。
-    
-    物理原理：
-        在炮集记录 (t-x) 中，面波同相轴斜率 slope = dt_pixel / dx_pixel，
-        对应物理速度 v = dx / (slope * dt)。
-        因此面波在图像上的合理斜率范围为：
-            slope_min = dx / (v_max * dt)   （高速面波，斜率小）
-            slope_max = dx / (v_min * dt)   （低速面波，斜率大）
-    
-    pred_prob: 模型输出的概率图 (B, C, T, X)，已 sigmoid
-    dx: 道间距（米）
-    dt: 采样间隔（秒）
-    v_min, v_max: 面波合理速度范围（m/s）
-    """
-    # 对概率图做轻微平滑，使梯度更稳定
-    pred_smooth = F.avg_pool2d(pred_prob, kernel_size=3, stride=1, padding=1)
-    
-    # 计算平滑后的梯度
-    g_t = pred_smooth[:, :, 1:, :] - pred_smooth[:, :, :-1, :]  # 时间方向
-    g_x = pred_smooth[:, :, :, 1:] - pred_smooth[:, :, :, :-1]  # 道方向
-    
-    # 对齐维度 -> (B, C, T-1, X-1)
-    g_t = g_t[:, :, :, :-1]
-    g_x = g_x[:, :, :-1, :]
-    
-    # 局部斜率（像素/像素）：|dt/dx|
-    slope = torch.abs(g_t) / (torch.abs(g_x) + epsilon)
-    
-    # 速度范围对应的斜率边界
-    # v = dx / (slope * dt)  =>  slope = dx / (v * dt)
-    slope_min = dx / (v_max * dt)   # 高速对应小斜率
-    slope_max = dx / (v_min * dt)   # 低速对应大斜率
-    
-    # 只在预测为面波的区域（概率 > 0.5）且 x 方向梯度显著处进行约束
-    # 避免除以 0 和背景区域的干扰
-    valid_mask = (pred_prob[:, :, :-1, :-1] > 0.5) & (torch.abs(g_x) > 0.01)
-    
-    # 惩罚：
-    #   slope < slope_min：速度太高（像水平层位），不像面波
-    #   slope > slope_max：速度太低（像陡倾噪声），不像面波
-    penalty_low = F.relu(slope_min - slope)   # 速度过高惩罚
-    penalty_high = F.relu(slope - slope_max)  # 速度过低惩罚
-    
-    penalty = penalty_low + penalty_high
-    
-    if valid_mask.sum() > 0:
-        loss = (penalty * valid_mask.float()).sum() / valid_mask.sum()
-    else:
-        loss = torch.tensor(0.0, device=pred_prob.device)
-    
-    return loss
 
 
 def train_one_epoch(model, dataloader, criterion, optimizer, device,
@@ -238,97 +149,12 @@ def validate(model, dataloader, criterion, device,
     }
 
 
-def save_loss_csv(loss_dict, csv_path):
-    """保存各分项损失到 CSV"""
-    with open(csv_path, 'w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(['epoch', 'total_loss', 'bce_loss', 'continuity_loss', 'velocity_loss'])
-        n_epochs = len(loss_dict['total'])
-        for i in range(n_epochs):
-            writer.writerow([
-                i + 1,
-                loss_dict['total'][i],
-                loss_dict['bce'][i],
-                loss_dict['cont'][i],
-                loss_dict['vel'][i]
-            ])
-
-
-def plot_loss_curve(train_losses, val_losses, save_path):
-    """绘制并保存损失曲线（包含总损失和各分项）"""
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-    
-    epochs = range(1, len(train_losses['total']) + 1)
-    
-    # 总损失
-    axes[0, 0].plot(epochs, train_losses['total'], 'b-', label='Train', linewidth=2)
-    axes[0, 0].plot(epochs, val_losses['total'], 'r-', label='Val', linewidth=2)
-    axes[0, 0].set_title('Total Loss')
-    axes[0, 0].set_xlabel('Epoch')
-    axes[0, 0].set_ylabel('Loss')
-    axes[0, 0].legend()
-    axes[0, 0].grid(True, alpha=0.3)
-    
-    # BCE 损失
-    axes[0, 1].plot(epochs, train_losses['bce'], 'b-', label='Train', linewidth=2)
-    axes[0, 1].plot(epochs, val_losses['bce'], 'r-', label='Val', linewidth=2)
-    axes[0, 1].set_title('BCE Loss')
-    axes[0, 1].set_xlabel('Epoch')
-    axes[0, 1].set_ylabel('Loss')
-    axes[0, 1].legend()
-    axes[0, 1].grid(True, alpha=0.3)
-    
-    # 连续性损失
-    axes[1, 0].plot(epochs, train_losses['cont'], 'b-', label='Train', linewidth=2)
-    axes[1, 0].plot(epochs, val_losses['cont'], 'r-', label='Val', linewidth=2)
-    axes[1, 0].set_title('Continuity Loss')
-    axes[1, 0].set_xlabel('Epoch')
-    axes[1, 0].set_ylabel('Loss')
-    axes[1, 0].legend()
-    axes[1, 0].grid(True, alpha=0.3)
-    
-    # 速度范围损失
-    axes[1, 1].plot(epochs, train_losses['vel'], 'b-', label='Train', linewidth=2)
-    axes[1, 1].plot(epochs, val_losses['vel'], 'r-', label='Val', linewidth=2)
-    axes[1, 1].set_title('Velocity Range Loss')
-    axes[1, 1].set_xlabel('Epoch')
-    axes[1, 1].set_ylabel('Loss')
-    axes[1, 1].legend()
-    axes[1, 1].grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=300)
-    plt.close()
-
-
 def main():
     # 创建保存目录
     ensure_dir(SAVE_DIR)
     
-    # 动态导入模型（从 model.py 中导入网络类）
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("model_module", MODEL_FILE)
-    model_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(model_module)
-    
-    # 自动获取网络类
-    model_class = None
-    for attr_name in dir(model_module):
-        attr = getattr(model_module, attr_name)
-        if attr_name == MODEL_CLASS_NAME and isinstance(attr, type) and issubclass(attr, nn.Module) and attr != nn.Module:
-            model_class = attr
-            break
-
-    if model_class is None:
-        for attr_name in dir(model_module):
-            attr = getattr(model_module, attr_name)
-            if isinstance(attr, type) and issubclass(attr, nn.Module) and attr != nn.Module:
-                model_class = attr
-                print(f"检测到网络模型类: {attr_name}")
-                break
-
-    if model_class is None:
-        raise RuntimeError("未能在模型文件中找到继承自 nn.Module 的类，请检查模型文件")
+    # 动态导入模型
+    model_class = import_model_class(MODEL_FILE, MODEL_CLASS_NAME)
     
     # 获取文件列表并划分数据集
     all_files = get_file_list(DATA_DIR, exclude_list=TEST_FILES)
@@ -351,9 +177,6 @@ def main():
     val_files = [all_files[i] for i in val_indices]
     
     print(f"训练集: {len(train_files)} 炮, 验证集: {len(val_files)} 炮")
-    
-    # 导入 Dataset
-    from dataset import SeismicDataset
     
     train_dataset = SeismicDataset(DATA_DIR, LABEL_DIR, train_files, transform=True)
     val_dataset = SeismicDataset(DATA_DIR, LABEL_DIR, val_files, transform=False)

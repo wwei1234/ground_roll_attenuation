@@ -1,21 +1,11 @@
 # Dataset.py
 import os
-import re
 import numpy as np
 import torch
 from torch.utils.data import Dataset
 import random
 
-
-def map_label_filename(data_filename):
-    """根据数据文件名生成标签文件名。
-    默认规则：如果标签文件名与数据文件名不同，则尝试从数据名中提取数字，并生成 mask_###.npy 格式。"""
-    base = os.path.splitext(data_filename)[0]
-    digits = re.findall(r"\d+", base)
-    if digits:
-        num = digits[-1]
-        return f"mask_{int(num):03d}.npy"
-    return data_filename
+from src.utils import map_label_filename
 
 
 class SeismicDataset(Dataset):

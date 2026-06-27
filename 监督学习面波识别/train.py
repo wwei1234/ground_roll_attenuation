@@ -1,13 +1,16 @@
 # train.py
 import os
-import csv
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
 from tqdm import tqdm
-import matplotlib.pyplot as plt
+
+from dataset import SeismicDataset
+from src.utils import (
+    ensure_dir, get_file_list, import_model_class, save_loss_csv, plot_loss_curve,
+)
 
 # ==================== 用户配置区（请在此处修改）====================
 # 路径配置
@@ -39,19 +42,6 @@ VAL_LOSS_CSV = "val_loss.csv"
 LOSS_CURVE_PNG = "loss_curve.png"
 # ================================================================
 
-
-def ensure_dir(dir_path):
-    if not os.path.exists(dir_path):
-        os.makedirs(dir_path)
-
-
-def get_file_list(data_dir, exclude_list=None):
-    """获取文件夹中所有 .npy 文件，排除测试集"""
-    if exclude_list is None:
-        exclude_list = []
-    files = sorted([f for f in os.listdir(data_dir) if f.endswith('.npy')])
-    files = [f for f in files if f not in exclude_list]
-    return files
 
 
 def train_one_epoch(model, dataloader, criterion, optimizer, device):
@@ -88,28 +78,6 @@ def validate(model, dataloader, criterion, device):
     return total_loss / len(dataloader.dataset)
 
 
-def save_loss_csv(loss_list, csv_path):
-    with open(csv_path, 'w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(['epoch', 'loss'])
-        for i, loss in enumerate(loss_list, 1):
-            writer.writerow([i, loss])
-
-
-def plot_loss_curve(train_losses, val_losses, save_path):
-    plt.figure(figsize=(10, 6))
-    plt.plot(range(1, len(train_losses)+1), train_losses, 'b-', label='Train Loss', linewidth=2)
-    plt.plot(range(1, len(val_losses)+1), val_losses, 'r-', label='Val Loss', linewidth=2)
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.title('Training and Validation Loss Curve')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=300)
-    plt.close()
-
-
 def main():
     # 创建保存目录
     ensure_dir(SAVE_DIR)
@@ -120,32 +88,8 @@ def main():
     val_loss_csv = os.path.join(LOGS_DIR, VAL_LOSS_CSV)
     loss_curve_png = os.path.join(LOGS_DIR, LOSS_CURVE_PNG)
     
-    # 动态导入模型（从 model.py 中导入网络类）
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("model_module", MODEL_FILE)
-    model_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(model_module)
-    
-    # 自动获取网络类
-    model_class = None
-    # 优先加载配置的目标模型类名
-    for attr_name in dir(model_module):
-        attr = getattr(model_module, attr_name)
-        if attr_name == MODEL_CLASS_NAME and isinstance(attr, type) and issubclass(attr, nn.Module) and attr != nn.Module:
-            model_class = attr
-            break
-
-    if model_class is None:
-        # 如果未找到指定类，回退到第一个 nn.Module 子类
-        for attr_name in dir(model_module):
-            attr = getattr(model_module, attr_name)
-            if isinstance(attr, type) and issubclass(attr, nn.Module) and attr != nn.Module:
-                model_class = attr
-                print(f"检测到网络模型类: {attr_name}")
-                break
-
-    if model_class is None:
-        raise RuntimeError("未能在模型文件中找到继承自 nn.Module 的类，请检查模型文件")
+    # 动态导入模型
+    model_class = import_model_class(MODEL_FILE, MODEL_CLASS_NAME)
     
     # 获取文件列表并划分数据集
     all_files = get_file_list(DATA_DIR, exclude_list=TEST_FILES)
@@ -169,9 +113,6 @@ def main():
     val_files = [all_files[i] for i in val_indices]
     
     print(f"训练集: {len(train_files)} 炮, 验证集: {len(val_files)} 炮")
-    
-    # 导入 Dataset
-    from dataset import SeismicDataset
     
     train_dataset = SeismicDataset(DATA_DIR, LABEL_DIR, train_files, transform=True)
     val_dataset = SeismicDataset(DATA_DIR, LABEL_DIR, val_files, transform=False)

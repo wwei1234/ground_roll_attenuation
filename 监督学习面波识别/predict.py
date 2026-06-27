@@ -1,12 +1,12 @@
 # predict.py
 import os
-import re
 import numpy as np
 import torch
-import torch.nn as nn
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from matplotlib import rcParams
+
+from src.utils import ensure_dir, map_label_filename, load_model
 
 # ============================================================
 #  ★ 绘图配置（参考标准绘图代码）
@@ -70,54 +70,6 @@ V_MAX = 1000.0                  # 最大面波速度（m/s）
 # 5. 测试时增强（TTA）：左右翻转预测再平均，减少随机噪声
 ENABLE_TTA = True               # 是否启用 TTA
 # ================================================================
-
-
-def ensure_dir(dir_path):
-    if not os.path.exists(dir_path):
-        os.makedirs(dir_path)
-
-
-def map_label_filename(data_filename):
-    """根据数据文件名自动推断标签文件名。"""
-    base = os.path.splitext(data_filename)[0]
-    digits = re.findall(r"\d+", base)
-    if digits:
-        num = digits[-1]
-        return f"mask_{int(num):03d}.npy"
-    return data_filename
-
-
-def load_model(model_path, model_file, device):
-    """加载模型"""
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("model_module", model_file)
-    model_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(model_module)
-    
-    model_class = None
-    for attr_name in dir(model_module):
-        attr = getattr(model_module, attr_name)
-        if attr_name == MODEL_CLASS_NAME and isinstance(attr, type) and issubclass(attr, nn.Module) and attr != nn.Module:
-            model_class = attr
-            break
-
-    if model_class is None:
-        for attr_name in dir(model_module):
-            attr = getattr(model_module, attr_name)
-            if isinstance(attr, type) and issubclass(attr, nn.Module) and attr != nn.Module:
-                model_class = attr
-                print(f"检测到模型类: {attr_name}")
-                break
-
-    if model_class is None:
-        raise RuntimeError("未找到模型类")
-    
-    model = model_class().to(device)
-    checkpoint = torch.load(model_path, map_location=device)
-    model.load_state_dict(checkpoint['model_state_dict'])
-    model.eval()
-    print(f"成功加载模型: {model_path} (Epoch {checkpoint.get('epoch', 'unknown')})")
-    return model
 
 
 def predict_file(model, data_path, device, threshold=0.5, use_tta=False):
@@ -444,7 +396,7 @@ def main():
     ensure_dir(OUTPUT_DIR)
     
     # 加载模型
-    model = load_model(MODEL_PATH, MODEL_FILE, DEVICE)
+    model = load_model(MODEL_PATH, MODEL_FILE, MODEL_CLASS_NAME, DEVICE)
     
     # 获取预测文件列表
     if len(PREDICT_FILES) > 0:
